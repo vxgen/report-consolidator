@@ -1,4 +1,22 @@
 import streamlit as st
+# Add this at the very beginning of your app.py
+def check_password():
+    if "password_correct" not in st.session_state:
+        st.session_state.password_correct = False
+
+    if not st.session_state.password_correct:
+        pwd = st.text_input("Enter Password", type="password")
+        if st.button("Login"):
+            if pwd == "your_secret_password": # Change this to your desired password
+                st.session_state.password_correct = True
+                st.rerun()
+            else:
+                st.error("Wrong password")
+        return False
+    return True
+
+if check_password():
+    # ... rest of your code goes here ...
 import pandas as pd
 import sqlite3
 import os
@@ -153,4 +171,5 @@ if st.button("🔥 HARD RESET (Clear Everything)"):
     conn.close()
     if os.path.exists(DB_NAME): os.remove(DB_NAME)
     st.rerun()
+
 conn.close()
