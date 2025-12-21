@@ -1,16 +1,4 @@
 streamlit
 pandas
 openpyxl
-[connections.gsheets]
-spreadsheet = "https://docs.google.com/spreadsheets/d/1KG8qWTYLa6GEWByYIg2vz3bHrGdW3gvqD_detwhyj7k/edit#gid=0"
-type = "service_account"
-project_id = "glossy-depot-481322-f7"
-private_key_id = "827d4bf0b5afb44c1c94aa95d01920e6e402ece3"
-private_key = "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDg7ipFmRzzavRV\nyKcQA0hzStJtVT9fEMpeALMtUNgQUv1WFSFLCzP6tlEI3yAsMx47x3zDlizGYQFY\n9IMgdArxS6KJRI9UAVMLR8QQfLJMEWl7vmdxUyMg5HAeWeHdQvZmrYfgdMpexqCh\n5Gs0tV3ylPRyYLIX3SlYN+27uJ88T/IwKR5+n1iXypBdb8Cr/Su59VUJNvqORGqC\n4Wv0x5vVD64vrReFIaRXhBNjLvjD/QZASSm3mqbP/JM+IOTf7/zmbyCqjb/W2i/l\nxvbuDEahjzWVEg+67h6D9k0fA2SvUcd44KUBkJAceRsf6kdPoPkqTcWdV0ZXGmtZ\nhOxK+cIJAgMBAAECggEAFO9/mYtdfl4zafNrcho0H9MHg5I+YnO2hwnx1qM7/eAt\nLacS1CBk6qfi7y+OMYvI4elSUgWqZ9G2/xez4Sa1fAcKFLrmZXwoEn7QBdugk5bz\nsy2InqvAmcemLeHRm+pz8u07UYEQjI8lSI9xPdTIIhOK+xH7Ky1BGcs+2+ZpUwLo\nDOSZKA9bxquVNZ90mxpaiYEj3x3tItcAO9oLenSbjuUWgtvtIezeC7qzTZ9cd/vo\nSC9mrP1r/GqEBjbP1NYiWVrT9jEY9/hbku5R4sKwoBYBBxjRc7adySNgAa2134ol\nDe9U8HpfyRdsR6TH8sGIKQ6HmNzCBvkhDbRgAtSltwKBgQDx20Lge0a4cP9Behn1\nDRkDsmOQDOYgjKIj9zroRzylU/wK6zVZRcPllMY1iCaebTe67P3ZzlS0BThAXIdd\nK2D3iAR3FZzwoP44r/sy4Dv4D0wduphWgucdyrobTsNhAOos+/ItCGadkXsKkl1a\nzeuN4DR1i2b5pkQE4IbCmw0gIwKBgQDuFYJPdfwubyG7xxebLLcOVIbjYWzLuNBX\nNF3TH4UUFDF49Se9dvpVMvDff/Fa1zXS/s0JXRI4Q54aFbfYhmqaEefrTGrqq90N\nABcDegdpT2KPZQ5GdeOtsSZKJxF+t2oZzpBZKx8zc7IZiicY9A0RgPjqXYqh/T3s\n8u79pENh4wKBgQDsWqhalF6idNse8+JWFnyxni2qYtCqUoVJvJw2zxc3QoH3cbDr\nE0DEJcYmHm4PORDTfjL+HaOtYcR9MW+f33qdrLEgZ2C9z7dhUqmcKIKygtCR5P5m\n3PpbpPiHI0vQioJPf9BFrgYKSlgCFtNgoAho2AisLpVtt8yVL47Cs5/6HQKBgESQ\n2Th9KCVPSA3GJpw/4nA0E6zEUArTrNyQbjzxJOhFcIH/SHSeITYMN6aGOEILHKsp\nSm9Z6HdfsdadTpcDDwxT/9CZ72iqGj02O2p66EuB20akudm89db936MXYUh3Fg1c\nmeG0M4Yj2bTVPrFHB8R0ujr0uYoxXnYw+Hb/qZA1AoGBAIcI1LyyoTdoVQkEkMWp\nrpe2/PuYDigavpatveXx2BADCs8VMpjpGKWT/JcuHOsARufZDFMZRhqT9JVYT2gV\no6p4dKlYTe7eNaopY0lZO4s0r8cd81jE+BU7okUiffz0FQfEP6rgInC7fx+M8OOp\n4LP0iVL1kYlPzD98zMTPlLT4\n-----END PRIVATE KEY-----\n"
-client_email = "report-consolidator@glossy-depot-481322-f7.iam.gserviceaccount.com"
-client_id = "110749883926456502979"
-auth_uri = "https://accounts.google.com/o/oauth2/auth"
-token_uri = "https://oauth2.googleapis.com/token"
-auth_provider_x509_cert_url = "https://www.googleapis.com/oauth2/v1/certs"
-client_x509_cert_url = "https://www.googleapis.com/robot/v1/metadata/x509/report-consolidator%40glossy-depot-481322-f7.iam.gserviceaccount.com"
-universe_domain = "googleapis.com"
+st-gsheets-connection
