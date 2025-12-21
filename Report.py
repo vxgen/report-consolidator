@@ -5,24 +5,6 @@ import os
 from datetime import datetime
 import io
 
-def check_password():
-    if "password_correct" not in st.session_state:
-        st.session_state.password_correct = False
-
-    if not st.session_state.password_correct:
-        pwd = st.text_input("Enter Password", type="password")
-        if st.button("Login"):
-            if pwd == "your_secret_password": # Change this to your desired password
-                st.session_state.password_correct = True
-                st.rerun()
-            else:
-                st.error("Wrong password")
-        return False
-    return True
-
-if check_password():
-    # ... rest of your code goes here ...
-    
 # --- Configuration & Database ---
 DB_NAME = "consolidated_data.db"
 
@@ -173,4 +155,5 @@ if st.button("🔥 HARD RESET (Clear Everything)"):
     st.rerun()
 
 conn.close()
+
 
