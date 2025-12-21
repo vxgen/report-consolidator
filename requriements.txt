@@ -1,4 +1,4 @@
-streamlit
+streamlit>=1.30.0
 pandas
 openpyxl
-st-gsheets-connection
+st-gsheets-connection==0.0.3
