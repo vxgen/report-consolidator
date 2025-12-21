@@ -1,5 +1,10 @@
 import streamlit as st
-# Add this at the very beginning of your app.py
+import pandas as pd
+import sqlite3
+import os
+from datetime import datetime
+import io
+
 def check_password():
     if "password_correct" not in st.session_state:
         st.session_state.password_correct = False
@@ -17,12 +22,7 @@ def check_password():
 
 if check_password():
     # ... rest of your code goes here ...
-import pandas as pd
-import sqlite3
-import os
-from datetime import datetime
-import io
-
+    
 # --- Configuration & Database ---
 DB_NAME = "consolidated_data.db"
 
@@ -173,3 +173,4 @@ if st.button("🔥 HARD RESET (Clear Everything)"):
     st.rerun()
 
 conn.close()
+
