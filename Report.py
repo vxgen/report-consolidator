@@ -1,64 +1,34 @@
 import streamlit as st
 import pandas as pd
-import sqlite3
-import os
+from streamlit_gsheets import GSheetsConnection
 from datetime import datetime
-import io
+import os
 
-# --- 1. Password Protection Function ---
+# --- 1. Password Protection ---
 def check_password():
-    """Returns True if the user had the correct password."""
     def password_entered():
-        if st.session_state["password"] == "admin123": # <--- CHANGE YOUR PASSWORD HERE
+        if st.session_state["password"] == "admin123": # <--- CHANGE PASSWORD HERE
             st.session_state["password_correct"] = True
-            del st.session_state["password"]  # don't store password
+            del st.session_state["password"]
         else:
             st.session_state["password_correct"] = False
 
     if "password_correct" not in st.session_state:
-        # First run, show input for password.
         st.text_input("Please enter the access password", type="password", on_change=password_entered, key="password")
         return False
     elif not st.session_state["password_correct"]:
-        # Password not correct, show input + error.
         st.text_input("Please enter the access password", type="password", on_change=password_entered, key="password")
         st.error("😕 Password incorrect")
         return False
-    else:
-        # Password correct.
-        return True
+    return True
 
-# --- 2. Main Application Gate ---
 if check_password():
-    # EVERYTHING BELOW IS NOW INDENTED BY 4 SPACES
-    
-    DB_NAME = "consolidated_data.db"
+    # --- 2. Initialize GSheets Connection ---
+    # This replaces the SQLite DB_NAME and init_db()
+    conn = st.connection("gsheets", type=GSheetsConnection)
 
-    def init_db():
-        conn = sqlite3.connect(DB_NAME)
-        c = conn.cursor()
-        c.execute('''CREATE TABLE IF NOT EXISTS upload_registry 
-                     (batch_id TEXT PRIMARY KEY, file_name TEXT, display_name TEXT, upload_time TEXT)''')
-        c.execute('''CREATE TABLE IF NOT EXISTS master_report 
-                     (batch_id TEXT, upload_time TEXT)''')
-        conn.commit()
-        conn.close()
-
-    def sync_db_schema(df):
-        conn = sqlite3.connect(DB_NAME)
-        cursor = conn.cursor()
-        cursor.execute("PRAGMA table_info(master_report)")
-        existing_cols = [info[1] for info in cursor.fetchall()]
-        for col in df.columns:
-            if col not in existing_cols:
-                cursor.execute(f'ALTER TABLE master_report ADD COLUMN "{col}" TEXT')
-        conn.commit()
-        conn.close()
-
-    init_db()
-
-    st.set_page_config(page_title="Segmented Report Manager", layout="wide")
-    st.title("📂 Segmented Report Consolidator")
+    st.set_page_config(page_title="Cloud Report Consolidator", layout="wide")
+    st.title("☁️ Cloud Inventory Consolidator (Google Sheets)")
 
     if 'target_columns' not in st.session_state:
         st.session_state.target_columns = ["Category", "SKU", "Product Name", "Product Description", "Stock on Hand", "Sold QTY"]
@@ -94,68 +64,93 @@ if check_password():
                 for idx, t_col in enumerate(st.session_state.target_columns):
                     mapping_dict[t_col] = m_cols[idx % 3].selectbox(f"Map to {t_col}", [None] + df_source.columns.tolist(), key=f"m_{file.name}_{t_col}")
 
-                if st.button(f"Process {d_name}", key=f"b_{file.name}"):
+                if st.button(f"Process & Save {d_name}", key=f"b_{file.name}"):
                     valid_maps = {v: k for k, v in mapping_dict.items() if v is not None}
                     if valid_maps:
-                        proc_df = df_source[list(valid_maps.keys())].rename(columns=valid_maps)
+                        # Process new data
+                        new_df = df_source[list(valid_maps.keys())].rename(columns=valid_maps)
                         batch_id = f"ID_{datetime.now().strftime('%Y%m%d%H%M%S')}_{i}"
                         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        proc_df['batch_id'], proc_df['upload_time'] = batch_id, now
-                        sync_db_schema(proc_df)
-                        conn = sqlite3.connect(DB_NAME)
-                        proc_df.to_sql("master_report", conn, if_exists='append', index=False)
-                        conn.execute("INSERT INTO upload_registry VALUES (?, ?, ?, ?)", (batch_id, file.name, d_name, now))
-                        conn.commit(); conn.close()
-                        st.success("Imported!"); st.rerun()
+                        new_df['batch_id'], new_df['upload_time'] = batch_id, now
+                        new_df['file_display_name'] = d_name # Store for segmenting later
+
+                        # Fetch existing data from Google Sheets
+                        try:
+                            existing_data = conn.read(ttl=0) # ttl=0 ensures we get fresh data
+                            # Combine with existing
+                            updated_df = pd.concat([existing_data, new_df], ignore_index=True, sort=False)
+                        except:
+                            # If sheet is empty
+                            updated_df = new_df
+                        
+                        # Update Google Sheets
+                        conn.update(data=updated_df)
+                        st.success(f"Successfully saved {d_name} to Google Sheets!")
+                        st.rerun()
+                    else:
+                        st.warning("Please map at least one column.")
 
     st.divider()
 
-    # --- STEP 3: SEGMENTED VIEW & SELECTIVE COMBINE ---
-    st.header("📋 Step 3: Manage Segments & Combine")
-    conn = sqlite3.connect(DB_NAME)
+    # --- STEP 3: SEGMENTED VIEW (FROM GSHEETS) ---
+    st.header("📋 Step 3: Manage Segments from Cloud")
     try:
-        registry = pd.read_sql("SELECT * FROM upload_registry", conn)
-        if not registry.empty:
-            selected_batches = []
+        # Read the master data from Google Sheets
+        master_data = conn.read(ttl=0)
+        
+        if not master_data.empty and 'batch_id' in master_data.columns:
+            # Get unique imports based on batch_id
+            unique_imports = master_data[['batch_id', 'file_display_name', 'upload_time']].drop_duplicates()
             
+            selected_batches = []
             st.subheader("Select Reports to Combine")
-            for _, row in registry.iterrows():
+            
+            for _, row in unique_imports.iterrows():
                 with st.container(border=True):
                     c1, c2, c3 = st.columns([0.5, 4, 2])
+                    
                     is_selected = c1.checkbox("", key=f"sel_{row['batch_id']}")
                     if is_selected: selected_batches.append(row['batch_id'])
-                    c2.write(f"**{row['display_name']}** ({row['file_name']})")
-                    c2.caption(f"Imported: {row['upload_time']}")
-                    seg_df = pd.read_sql(f"SELECT * FROM master_report WHERE batch_id='{row['batch_id']}'", conn)
+                    
+                    c2.write(f"**{row['file_display_name']}**")
+                    c2.caption(f"Imported: {row['upload_time']} | ID: {row['batch_id']}")
+                    
+                    # Filter data for this specific segment
+                    seg_df = master_data[master_data['batch_id'] == row['batch_id']]
                     clean_seg = seg_df[[c for c in st.session_state.target_columns if c in seg_df.columns]]
+                    
                     csv_data = clean_seg.to_csv(index=False).encode('utf-8')
-                    c3.download_button("📥 Download This Segment", data=csv_data, file_name=f"{row['display_name']}.csv", key=f"dl_{row['batch_id']}")
-                    if c3.button("🗑️ Delete", key=f"del_btn_{row['batch_id']}"):
-                        cursor = conn.cursor()
-                        cursor.execute("DELETE FROM master_report WHERE batch_id=?", (row['batch_id'],))
-                        cursor.execute("DELETE FROM upload_registry WHERE batch_id=?", (row['batch_id'],))
-                        conn.commit(); st.rerun()
+                    c3.download_button("📥 Download", data=csv_data, file_name=f"{row['file_display_name']}.csv", key=f"dl_{row['batch_id']}")
+                    
+                    if c3.button("🗑️ Delete from Cloud", key=f"del_{row['batch_id']}"):
+                        # Remove this batch from the master dataframe
+                        remaining_data = master_data[master_data['batch_id'] != row['batch_id']]
+                        conn.update(data=remaining_data)
+                        st.success("Deleted from Cloud!")
+                        st.rerun()
 
             st.divider()
-            st.subheader("🔗 Combined Export")
+            # --- COMBINE SECTION ---
+            st.subheader("🔗 Combined Cloud Export")
             if selected_batches:
                 if st.button("Generate Combined Report"):
-                    placeholders = ','.join(['?'] * len(selected_batches))
-                    combined_df = pd.read_sql(f"SELECT * FROM master_report WHERE batch_id IN ({placeholders})", conn, params=selected_batches)
+                    combined_df = master_data[master_data['batch_id'].isin(selected_batches)]
                     final_cols = [c for c in st.session_state.target_columns if c in combined_df.columns]
                     display_df = combined_df[final_cols]
                     st.dataframe(display_df)
                     csv_comb = display_df.to_csv(index=False).encode('utf-8')
-                    st.download_button("📥 Download Combined Report", data=csv_comb, file_name="combined_report.csv")
+                    st.download_button("📥 Download Combined Report", data=csv_comb, file_name="combined_cloud_report.csv")
         else:
-            st.info("No reports imported yet.")
+            st.info("No data found in Google Sheets.")
     except Exception as e:
-        st.error(f"Error: {e}")
+        st.error(f"Waiting for data or Error: {e}")
 
     st.divider()
 
-    if st.button("🔥 HARD RESET (Clear Everything)"):
-        conn.close()
-        if os.path.exists(DB_NAME): os.remove(DB_NAME)
+    # --- STEP 4: HARD RESET ---
+    if st.button("🔥 WIPE ALL GOOGLE SHEET DATA"):
+        # We update with an empty dataframe containing only our tracking columns
+        empty_df = pd.DataFrame(columns=st.session_state.target_columns + ['batch_id', 'upload_time', 'file_display_name'])
+        conn.update(data=empty_df)
+        st.success("Cloud data wiped!")
         st.rerun()
-    conn.close()
