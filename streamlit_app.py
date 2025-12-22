@@ -24,7 +24,7 @@ def check_password():
     if st.session_state["password_correct"]:
         return True
 
-    st.title("🔐 Inventory System Access")
+    st.title("🔐 Report Tool System Access")
     tab1, tab2 = st.tabs(["🔑 Login", "📝 Register"])
 
     with tab1:
@@ -214,3 +214,4 @@ if check_password():
             st.info("No cloud data available yet.")
     except Exception as e:
         st.error(f"Error accessing Cloud Data: {e}")
+
