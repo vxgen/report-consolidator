@@ -3,8 +3,8 @@ import pandas as pd
 from datetime import datetime
 
 # --- 0. GLOBAL CONFIGURATION ---
-# This is the sheet used for User Registration/Login
-USER_SHEET_URL = "https://docs.google.com/spreadsheets/d/1CFyv3g4E4HzbP04iyv3SvSN4XkvedzYMMkrAH-RSHyY/edit#gid=0"
+# The specific sheet for User Registration/Login
+USER_SHEET_URL = "https://docs.google.com/spreadsheets/d/1KG8qWTYLa6GEWByYIg2vz3bHrGdW3gvqD_detwhyj7k/edit?gid=522749285#gid=522749285"
 
 # --- 1. ROBUST IMPORT CHECK ---
 try:
@@ -32,15 +32,14 @@ def check_password():
 
     with tab1:
         with st.form("login_form"):
-            user = st.text_input("Username")
-            pw = st.text_input("Password", type="password")
+            user = st.text_input("Username").strip() # Auto-trim spaces
+            pw = st.text_input("Password", type="password").strip()
             if st.form_submit_button("Login"):
                 try:
-                    # Reading from the global USER_SHEET_URL
                     user_db = conn.read(spreadsheet=USER_SHEET_URL, worksheet="users", ttl=0)
-                    # Convert to string to ensure comparison works
-                    match = user_db[(user_db['username'].astype(str) == str(user)) & 
-                                    (user_db['password'].astype(str) == str(pw))]
+                    # Case-insensitive username check
+                    match = user_db[(user_db['username'].astype(str).str.lower() == user.lower()) & 
+                                    (user_db['password'].astype(str) == pw)]
                     if not match.empty:
                         st.session_state["password_correct"] = True
                         st.session_state["current_user"] = user
@@ -48,19 +47,19 @@ def check_password():
                     else:
                         st.error("Invalid username or password")
                 except Exception as e:
-                    st.error(f"Login Error: Ensure the 'users' tab exists and is shared. {e}")
+                    st.error(f"Login Error: Ensure the 'users' tab exists and is shared. Error: {e}")
 
     with tab2:
         st.info("Registration adds your credentials to the cloud database.")
         with st.form("register_form"):
-            new_user = st.text_input("Choose a Username")
-            new_pw = st.text_input("Choose a Password", type="password")
-            confirm_pw = st.text_input("Confirm Password", type="password")
+            new_user = st.text_input("Choose a Username").strip()
+            new_pw = st.text_input("Choose a Password", type="password").strip()
+            confirm_pw = st.text_input("Confirm Password", type="password").strip()
             
             if st.form_submit_button("Create Account"):
                 try:
                     user_db = conn.read(spreadsheet=USER_SHEET_URL, worksheet="users", ttl=0)
-                    if new_user in user_db['username'].astype(str).values:
+                    if new_user.lower() in user_db['username'].astype(str).str.lower().values:
                         st.warning("Username already exists!")
                     elif new_pw != confirm_pw:
                         st.error("Passwords do not match")
@@ -122,7 +121,6 @@ if check_password():
                 st.subheader(f"📄 {file.name}")
                 d_name = st.text_input("Friendly Name:", value=f"Import_{i+1}", key=f"d_{file.name}")
                 
-                # Load data
                 df_source = pd.read_csv(file) if file.name.endswith('.csv') else pd.read_excel(file)
                 
                 mapping_dict = {}
@@ -133,7 +131,6 @@ if check_password():
                 if st.button(f"Process & Save {d_name}", key=f"b_{file.name}"):
                     valid_maps = {v: k for k, v in mapping_dict.items() if v is not None}
                     if valid_maps:
-                        # Transform data
                         new_df = df_source[list(valid_maps.keys())].rename(columns=valid_maps)
                         batch_id = f"ID_{datetime.now().strftime('%Y%m%d%H%M%S')}_{i}"
                         new_df['batch_id'] = batch_id
@@ -142,7 +139,7 @@ if check_password():
                         new_df['uploaded_by'] = st.session_state.get('current_user', 'Unknown')
 
                         try:
-                            # Read current data from main sheet (defined in Secrets)
+                            # Worksheet="Sheet1" refers to the main DATA sheet from your secrets
                             existing_data = conn_reports.read(worksheet="Sheet1", ttl=0)
                             updated_df = pd.concat([existing_data, new_df], ignore_index=True, sort=False)
                         except:
@@ -151,8 +148,6 @@ if check_password():
                         conn_reports.update(worksheet="Sheet1", data=updated_df)
                         st.success(f"Successfully saved {d_name} to Cloud!")
                         st.rerun()
-                    else:
-                        st.warning("Please map at least one column before saving.")
 
     st.divider()
 
@@ -181,4 +176,14 @@ if check_password():
 
             if selected_batches:
                 st.subheader("🔗 Combined Export")
-                if st.button("
+                if st.button("Generate Combined Report"):
+                    combined = master_data[master_data['batch_id'].isin(selected_batches)]
+                    display_cols = [c for c in st.session_state.target_columns if c in combined.columns]
+                    st.dataframe(combined[display_cols])
+                    
+                    csv = combined[display_cols].to_csv(index=False).encode('utf-8')
+                    st.download_button("📥 Download CSV", data=csv, file_name="combined_inventory.csv")
+        else:
+            st.info("No cloud data available yet.")
+    except Exception as e:
+        st.error(f"Error accessing Cloud Data: {e}")
