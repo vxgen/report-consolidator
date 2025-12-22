@@ -34,10 +34,8 @@ def check_password():
             if st.form_submit_button("Login"):
                 try:
                     user_db = conn.read(spreadsheet=USER_SHEET_URL, worksheet="users", ttl=0)
-                    # Normalize columns to handle potential spaces
                     user_db.columns = user_db.columns.str.strip()
                     
-                    # Search for matching user
                     match = user_db[(user_db['username'].astype(str) == user) & 
                                     (user_db['password'].astype(str) == pw)]
                     
@@ -71,12 +69,7 @@ def check_password():
                     elif len(new_pw) < 6:
                         st.error("Security: Password must be at least 6 characters")
                     else:
-                        # New users are added with 'approved' set to 'NO'
-                        new_entry = pd.DataFrame([{
-                            "username": str(new_user), 
-                            "password": str(new_pw),
-                            "approved": "NO" 
-                        }])
+                        new_entry = pd.DataFrame([{"username": str(new_user), "password": str(new_pw), "approved": "NO"}])
                         updated_users = pd.concat([user_db, new_entry], ignore_index=True)
                         conn.update(spreadsheet=USER_SHEET_URL, worksheet="users", data=updated_users)
                         st.success("✅ Registration submitted! Please wait for admin approval.")
@@ -88,6 +81,7 @@ def check_password():
 if check_password():
     conn_reports = st.connection("gsheets", type=GSheetsConnection)
     
+    # Sidebar
     st.sidebar.title("👤 Session")
     st.sidebar.write(f"User: **{st.session_state['current_user']}**")
     if st.sidebar.button("Log Out"):
@@ -96,5 +90,60 @@ if check_password():
 
     st.title("☁️ Cloud Inventory Consolidator")
     
-    # Rest of your app logic (Step 1, 2, 3) goes here...
-    st.write("Welcome to the secure dashboard.")
+    if 'target_columns' not in st.session_state:
+        st.session_state.target_columns = ["Category", "SKU", "Product Name", "Product Description", "Stock on Hand", "Sold QTY"]
+
+    # --- STEP 1: SCHEMA CONFIGURATION ---
+    with st.expander("⚙️ Step 1: Configure Target Format"):
+        cols_to_remove = []
+        for i, col in enumerate(st.session_state.target_columns):
+            c1, c2 = st.columns([5, 1])
+            st.session_state.target_columns[i] = c1.text_input(f"Col {i+1}", value=col, key=f"edit_{i}")
+            if c2.button("🗑️", key=f"del_{i}"): cols_to_remove.append(col)
+        
+        for col in cols_to_remove: 
+            st.session_state.target_columns.remove(col)
+            st.rerun()
+            
+        nc1, nc2 = st.columns([5, 1])
+        new_name = nc1.text_input("New Column Name:")
+        if nc2.button("➕ Add"):
+            if new_name: 
+                st.session_state.target_columns.append(new_name)
+                st.rerun()
+
+    # --- STEP 2: UPLOAD & MAPPING ---
+    st.header("📤 Step 2: Upload & Map")
+    uploaded_files = st.file_uploader("Upload Files", type=["csv", "xlsx"], accept_multiple_files=True)
+
+    if uploaded_files:
+        for i, file in enumerate(uploaded_files):
+            with st.container(border=True):
+                st.subheader(f"📄 {file.name}")
+                d_name = st.text_input("Friendly Name:", value=f"Import_{i+1}", key=f"d_{file.name}")
+                df_source = pd.read_csv(file) if file.name.endswith('.csv') else pd.read_excel(file)
+                
+                mapping_dict = {}
+                m_cols = st.columns(3)
+                for idx, t_col in enumerate(st.session_state.target_columns):
+                    mapping_dict[t_col] = m_cols[idx % 3].selectbox(f"Map to {t_col}", [None] + df_source.columns.tolist(), key=f"m_{file.name}_{t_col}")
+
+                if st.button(f"Process & Save {d_name}", key=f"b_{file.name}"):
+                    valid_maps = {v: k for k, v in mapping_dict.items() if v is not None}
+                    if valid_maps:
+                        new_df = df_source[list(valid_maps.keys())].rename(columns=valid_maps)
+                        batch_id = f"ID_{datetime.now().strftime('%Y%m%d%H%M%S')}_{i}"
+                        new_df['batch_id'], new_df['upload_time'] = batch_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        new_df['file_display_name'], new_df['uploaded_by'] = d_name, st.session_state['current_user']
+
+                        try:
+                            existing_data = conn_reports.read(worksheet="Sheet1", ttl=0)
+                            updated_df = pd.concat([existing_data, new_df], ignore_index=True, sort=False)
+                        except:
+                            updated_df = new_df
+                        
+                        conn_reports.update(worksheet="Sheet1", data=updated_df)
+                        st.success(f"Saved {d_name} to Cloud!")
+                        st.rerun()
+
+    st.divider()
