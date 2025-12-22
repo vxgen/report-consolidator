@@ -9,7 +9,7 @@ USER_SHEET_URL = "https://docs.google.com/spreadsheets/d/1KG8qWTYLa6GEWByYIg2vz3
 try:
     from streamlit_gsheets import GSheetsConnection
 except ImportError:
-    st.error("Missing libraries. Check requirements.txt")
+    st.error("Missing libraries. Please rename 'requriements.txt' to 'requirements.txt' on GitHub.")
     st.stop()
 
 st.set_page_config(page_title="Cloud Inventory Manager", layout="wide")
@@ -121,7 +121,13 @@ if check_password():
             with st.container(border=True):
                 st.subheader(f"📄 {file.name}")
                 d_name = st.text_input("Friendly Name:", value=f"Import_{i+1}", key=f"d_{file.name}")
-                df_source = pd.read_csv(file) if file.name.endswith('.csv') else pd.read_excel(file)
+                
+                # Load data safely
+                try:
+                    df_source = pd.read_csv(file) if file.name.endswith('.csv') else pd.read_excel(file)
+                except Exception as e:
+                    st.error(f"Could not read file: {e}")
+                    continue
                 
                 mapping_dict = {}
                 m_cols = st.columns(3)
@@ -133,10 +139,13 @@ if check_password():
                     if valid_maps:
                         new_df = df_source[list(valid_maps.keys())].rename(columns=valid_maps)
                         batch_id = f"ID_{datetime.now().strftime('%Y%m%d%H%M%S')}_{i}"
-                        new_df['batch_id'], new_df['upload_time'] = batch_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        new_df['file_display_name'], new_df['uploaded_by'] = d_name, st.session_state['current_user']
+                        new_df['batch_id'] = batch_id
+                        new_df['upload_time'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        new_df['file_display_name'] = d_name
+                        new_df['uploaded_by'] = st.session_state['current_user']
 
                         try:
+                            # Read current data from main sheet (defined in Secrets)
                             existing_data = conn_reports.read(worksheet="Sheet1", ttl=0)
                             updated_df = pd.concat([existing_data, new_df], ignore_index=True, sort=False)
                         except:
@@ -147,3 +156,36 @@ if check_password():
                         st.rerun()
 
     st.divider()
+
+    # --- STEP 3: MANAGE CLOUD SEGMENTS ---
+    st.header("📋 Step 3: Manage Cloud Segments")
+    try:
+        master_data = conn_reports.read(worksheet="Sheet1", ttl=0)
+        if not master_data.empty and 'batch_id' in master_data.columns:
+            unique_imports = master_data[['batch_id', 'file_display_name', 'upload_time', 'uploaded_by']].drop_duplicates()
+            selected_batches = []
+            
+            for _, row in unique_imports.iterrows():
+                with st.container(border=True):
+                    c1, c2, c3 = st.columns([0.5, 4, 2])
+                    if c1.checkbox("", key=f"sel_{row['batch_id']}"):
+                        selected_batches.append(row['batch_id'])
+                    c2.write(f"**{row['file_display_name']}**")
+                    c2.caption(f"By: {row['uploaded_by']} | {row['upload_time']}")
+                    
+                    if c3.button("🗑️ Delete", key=f"del_{row['batch_id']}"):
+                        remaining = master_data[master_data['batch_id'] != row['batch_id']]
+                        conn_reports.update(worksheet="Sheet1", data=remaining)
+                        st.rerun()
+
+            if selected_batches:
+                if st.button("Generate Combined Report"):
+                    combined = master_data[master_data['batch_id'].isin(selected_batches)]
+                    display_cols = [c for c in st.session_state.target_columns if c in combined.columns]
+                    st.dataframe(combined[display_cols])
+                    csv = combined[display_cols].to_csv(index=False).encode('utf-8')
+                    st.download_button("📥 Download", data=csv, file_name="combined.csv")
+        else:
+            st.info("No cloud data available yet.")
+    except Exception as e:
+        st.error(f"Error accessing Cloud Data: {e}")
