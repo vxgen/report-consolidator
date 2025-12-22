@@ -1,8 +1,14 @@
 import streamlit as st
 import pandas as pd
-from streamlit_gsheets import GSheetsConnection
 from datetime import datetime
 import os
+
+# Try-except block to catch the import error and show a helpful message
+try:
+    from streamlit_gsheets import GSheetsConnection
+except ImportError:
+    st.error("The 'st-gsheets-connection' library is not installed correctly. Please check requirements.txt.")
+    st.stop()
 
 # --- 1. Password Protection ---
 def check_password():
@@ -154,3 +160,4 @@ if check_password():
         conn.update(data=empty_df)
         st.success("Cloud data wiped!")
         st.rerun()
+
