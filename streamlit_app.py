@@ -1,18 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-import pytz # Add this to your imports at the top
 
-# --- NEW: Helper Function for Sydney Time ---
-def get_sydney_time():
-    sydney_tz = pytz.timezone('Australia/Sydney')
-    return datetime.now(sydney_tz).strftime("%Y-%m-%d %I:%M %p")
-
-# --- UPDATE: Inside Step 2 (Process & Save) ---
-if st.button(f"Process & Save {d_name}", key=f"b_{file.name}"):
-    # ... existing code ...
-    new_df['upload_time'] = get_sydney_time() # Uses 12:22 PM format
-    # ... existing code ...
 
 # --- 0. GLOBAL CONFIGURATION ---
 USER_SHEET_URL = "https://docs.google.com/spreadsheets/d/1KG8qWTYLa6GEWByYIg2vz3bHrGdW3gvqD_detwhyj7k/edit?gid=522749285#gid=522749285"
@@ -230,6 +219,7 @@ if check_password():
             st.info("No cloud data available yet.")
     except Exception as e:
         st.error(f"Error accessing Cloud Data: {e}")
+
 
 
 
