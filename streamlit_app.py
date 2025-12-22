@@ -157,7 +157,7 @@ if check_password():
 
     st.divider()
 
-    # --- STEP 3: MANAGE CLOUD SEGMENTS ---
+   # --- STEP 3: MANAGE CLOUD SEGMENTS ---
     st.header("📋 Step 3: Manage Cloud Segments")
     try:
         master_data = conn_reports.read(worksheet="Sheet1", ttl=0)
@@ -167,9 +167,11 @@ if check_password():
             
             for _, row in unique_imports.iterrows():
                 with st.container(border=True):
+                    # Top Row: Selection, Name, and Delete
                     c1, c2, c3 = st.columns([0.5, 4, 2])
                     if c1.checkbox("", key=f"sel_{row['batch_id']}"):
                         selected_batches.append(row['batch_id'])
+                    
                     c2.write(f"**{row['file_display_name']}**")
                     c2.caption(f"By: {row['uploaded_by']} | {row['upload_time']}")
                     
@@ -178,13 +180,36 @@ if check_password():
                         conn_reports.update(worksheet="Sheet1", data=remaining)
                         st.rerun()
 
+                    # NEW: Individual Export/Preview Section
+                    with st.expander("👁️ View & Download this Individual Report"):
+                        # Filter data for just this batch
+                        individual_df = master_data[master_data['batch_id'] == row['batch_id']]
+                        # Show only target columns
+                        display_cols = [c for c in st.session_state.target_columns if c in individual_df.columns]
+                        
+                        st.dataframe(individual_df[display_cols], use_container_width=True)
+                        
+                        # Individual Download Button
+                        csv_data = individual_df[display_cols].to_csv(index=False).encode('utf-8')
+                        st.download_button(
+                            label=f"📥 Download {row['file_display_name']} as CSV",
+                            data=csv_data,
+                            file_name=f"{row['file_display_name']}_export.csv",
+                            mime='text/csv',
+                            key=f"dl_{row['batch_id']}"
+                        )
+
+            # Combined Report Section remains at the bottom
             if selected_batches:
-                if st.button("Generate Combined Report"):
+                st.markdown("---")
+                st.subheader("🔗 Combined Export")
+                if st.button("Generate Combined Report from Selected"):
                     combined = master_data[master_data['batch_id'].isin(selected_batches)]
                     display_cols = [c for c in st.session_state.target_columns if c in combined.columns]
                     st.dataframe(combined[display_cols])
+                    
                     csv = combined[display_cols].to_csv(index=False).encode('utf-8')
-                    st.download_button("📥 Download", data=csv, file_name="combined.csv")
+                    st.download_button("📥 Download Combined CSV", data=csv, file_name="combined_report.csv")
         else:
             st.info("No cloud data available yet.")
     except Exception as e:
