@@ -1,4 +1,6 @@
 streamlit>=1.30.0
 pandas
 openpyxl
-st-gsheets-connection==0.0.3
+st-gsheets-connection
+gspread
+duckdb
