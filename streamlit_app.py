@@ -2,7 +2,8 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import os
-
+# --- 0. Global Configuration ---
+USER_SHEET_URL = "https://docs.google.com/spreadsheets/d/1CFyv3g4E4HzbP04iyv3SvSN4XkvedzYMMkrAH-RSHyY/edit#gid=0"
 # --- 1. Robust Import Check ---
 try:
     from streamlit_gsheets import GSheetsConnection
@@ -95,3 +96,4 @@ if check_password():
             st.rerun()
         nc1, nc2 = st.columns([5, 1])
         new_
+
