@@ -12,7 +12,7 @@ except ImportError:
     st.error("Missing libraries. Please rename 'requriements.txt' to 'requirements.txt' on GitHub.")
     st.stop()
 
-st.set_page_config(page_title="Cloud Inventory Manager", layout="wide")
+st.set_page_config(page_title="Report Tool Manager", layout="wide")
 
 # --- 2. SECURE AUTHENTICATION WITH APPROVAL ---
 def check_password():
@@ -88,7 +88,7 @@ if check_password():
         st.session_state["password_correct"] = False
         st.rerun()
 
-    st.title("☁️ Cloud Inventory Consolidator")
+    st.title("☁️ Report Tool Consolidator")
     
     if 'target_columns' not in st.session_state:
         st.session_state.target_columns = ["Category", "SKU", "Product Name", "Product Description", "Stock on Hand", "Sold QTY"]
@@ -214,4 +214,5 @@ if check_password():
             st.info("No cloud data available yet.")
     except Exception as e:
         st.error(f"Error accessing Cloud Data: {e}")
+
 
