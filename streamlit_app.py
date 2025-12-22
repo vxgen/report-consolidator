@@ -2,16 +2,16 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import pytz
+import time
 
 # --- 0. GLOBAL CONFIGURATION ---
-# The specific sheet for User Registration/Login
 USER_SHEET_URL = "https://docs.google.com/spreadsheets/d/1KG8qWTYLa6GEWByYIg2vz3bHrGdW3gvqD_detwhyj7k/edit?gid=522749285#gid=522749285"
 
 # --- 1. IMPORT CHECK ---
 try:
     from streamlit_gsheets import GSheetsConnection
 except ImportError:
-    st.error("Missing libraries. Ensure 'requirements.txt' is correct on GitHub.")
+    st.error("Missing libraries. Ensure 'requirements.txt' contains: st-gsheets-connection, pytz")
     st.stop()
 
 # Helper for Sydney Time
@@ -41,7 +41,8 @@ def check_password():
             pw = st.text_input("Password", type="password").strip()
             if st.form_submit_button("Login"):
                 try:
-                    user_db = conn.read(spreadsheet=USER_SHEET_URL, worksheet="users", ttl=0)
+                    # Optimized read with 10s cache to avoid 429 errors
+                    user_db = conn.read(spreadsheet=USER_SHEET_URL, worksheet="users", ttl="10s")
                     user_db.columns = user_db.columns.str.strip()
                     match = user_db[(user_db['username'].astype(str) == user) & 
                                     (user_db['password'].astype(str) == pw)]
@@ -57,10 +58,13 @@ def check_password():
                     else:
                         st.error("❌ Invalid credentials")
                 except Exception as e:
-                    st.error(f"Login Error: {e}")
+                    if "429" in str(e):
+                        st.error("Google API Rate Limit reached. Please wait 15 seconds.")
+                    else:
+                        st.error(f"Login Error: {e}")
 
     with tab2:
-        st.info("Registration requires admin approval before login is enabled.")
+        st.info("Registration requires admin approval.")
         with st.form("register_form"):
             new_user = st.text_input("Choose Username").strip()
             new_pw = st.text_input("Choose Password", type="password").strip()
@@ -68,7 +72,7 @@ def check_password():
             
             if st.form_submit_button("Create Account"):
                 try:
-                    user_db = conn.read(spreadsheet=USER_SHEET_URL, worksheet="users", ttl=0)
+                    user_db = conn.read(spreadsheet=USER_SHEET_URL, worksheet="users", ttl="5s")
                     if new_user.lower() in user_db['username'].astype(str).str.lower().values:
                         st.warning("Username exists!")
                     elif new_pw != confirm_pw:
@@ -91,7 +95,7 @@ if check_password():
     # Sidebar Profile
     st.sidebar.title("👤 User Profile")
     st.sidebar.write(f"Logged in: **{st.session_state['current_user']}**")
-    st.sidebar.caption(f"Local Time: {get_sydney_time()}")
+    st.sidebar.caption(f"Sydney Time: {get_sydney_time()}")
     if st.sidebar.button("Log Out"):
         st.session_state["password_correct"] = False
         st.rerun()
@@ -148,21 +152,24 @@ if check_password():
                             new_df['uploaded_by'] = st.session_state['current_user']
 
                             try:
+                                # Use ttl=0 here because we need fresh data before appending
                                 existing_data = conn_reports.read(worksheet="Sheet1", ttl=0)
                                 updated_df = pd.concat([existing_data, new_df], ignore_index=True, sort=False)
-                            except:
-                                updated_df = new_df
-                            
-                            conn_reports.update(worksheet="Sheet1", data=updated_df)
-                            st.success(f"Saved to Cloud at {get_sydney_time()}!")
-                            st.rerun()
+                                conn_reports.update(worksheet="Sheet1", data=updated_df)
+                                st.success(f"Saved to Cloud!")
+                                time.sleep(1) # Small pause for API stability
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Save Error: {e}")
 
         st.divider()
 
         # --- STEP 3: MANAGE SEGMENTS ---
         st.header("📋 Step 3: Manage Cloud Segments")
         try:
-            master_data = conn_reports.read(worksheet="Sheet1", ttl=0)
+            # Main read uses a 10s cache to stay under quota
+            master_data = conn_reports.read(worksheet="Sheet1", ttl="10s")
+            
             if not master_data.empty and 'batch_id' in master_data.columns:
                 unique_imports = master_data[['batch_id', 'file_display_name', 'upload_time', 'uploaded_by']].drop_duplicates()
                 selected_batches = []
@@ -190,18 +197,23 @@ if check_password():
                 if selected_batches:
                     st.markdown("---")
                     b1, b2 = st.columns(2)
+                    
                     if b1.button("📂 Archive Selected"):
-                        to_archive = master_data[master_data['batch_id'].isin(selected_batches)]
-                        remaining = master_data[~master_data['batch_id'].isin(selected_batches)]
-                        try:
-                            archive_db = conn_reports.read(worksheet="archive", ttl=0)
-                            new_archive = pd.concat([archive_db, to_archive], ignore_index=True)
-                            conn_reports.update(worksheet="archive", data=new_archive)
-                            conn_reports.update(worksheet="Sheet1", data=remaining)
-                            st.success("Moved to Archive!")
-                            st.rerun()
-                        except:
-                            st.error("Archive tab not found!")
+                        with st.spinner("Archiving..."):
+                            to_archive = master_data[master_data['batch_id'].isin(selected_batches)]
+                            remaining = master_data[~master_data['batch_id'].isin(selected_batches)]
+                            try:
+                                # Read archive with small TTL
+                                archive_db = conn_reports.read(worksheet="archive", ttl="5s")
+                                updated_archive = pd.concat([archive_db, to_archive], ignore_index=True)
+                                
+                                conn_reports.update(worksheet="archive", data=updated_archive)
+                                conn_reports.update(worksheet="Sheet1", data=remaining)
+                                st.success("Moved to Archive!")
+                                time.sleep(2)
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Archive Error: {e}")
 
                     if b2.button("📊 Generate Combined Report"):
                         combined = master_data[master_data['batch_id'].isin(selected_batches)]
@@ -212,12 +224,15 @@ if check_password():
             else:
                 st.info("No active segments.")
         except Exception as e:
-            st.error(f"Data Error: {e}")
+            if "429" in str(e):
+                st.warning("Google API cooling down. Data will load in a moment...")
+            else:
+                st.error(f"Data Error: {e}")
 
     with archive_tab:
         st.header("📁 Archived Data")
         try:
-            archived_df = conn_reports.read(worksheet="archive", ttl=0)
+            archived_df = conn_reports.read(worksheet="archive", ttl="20s")
             if not archived_df.empty:
                 st.dataframe(archived_df, use_container_width=True)
                 if st.button("🧹 Clear Archive"):
@@ -227,4 +242,4 @@ if check_password():
             else:
                 st.write("Archive is empty.")
         except:
-            st.error("Create 'archive' tab in Google Sheets first.")
+            st.error("Ensure 'archive' tab exists.")
