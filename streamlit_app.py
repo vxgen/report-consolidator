@@ -33,7 +33,7 @@ def check_password():
         return True
 
     st.title("🔐 Inventory System Access")
-    tab1, tab2 = st.tabs(["🔑 Login", "📝 Register New User"])
+    tab1, tab2 = st.tabs(["🔑 Login", "📝 Register"])
 
     with tab1:
         with st.form("login_form"):
@@ -94,10 +94,27 @@ if check_password():
         if 'target_columns' not in st.session_state:
             st.session_state.target_columns = ["Category", "SKU", "Product Name", "Product Description", "Stock on Hand", "Sold QTY"]
 
-        # --- STEP 1: SCHEMA ---
+        # --- RESTORED STEP 1: SCHEMA CONFIGURATION ---
         with st.expander("⚙️ Step 1: Configure Target Format"):
-            # (Step 1 Logic Remains Same)
-            pass
+            st.write("Modify the columns you want in your final consolidated report:")
+            cols_to_remove = []
+            for i, col in enumerate(st.session_state.target_columns):
+                c1, c2 = st.columns([5, 1])
+                st.session_state.target_columns[i] = c1.text_input(f"Column {i+1}", value=col, key=f"edit_col_{i}")
+                if c2.button("🗑️", key=f"del_col_{i}"):
+                    cols_to_remove.append(col)
+            
+            for col in cols_to_remove:
+                st.session_state.target_columns.remove(col)
+                st.rerun()
+                
+            st.markdown("---")
+            nc1, nc2 = st.columns([5, 1])
+            new_col_name = nc1.text_input("Add New Column Name:", key="new_col_input")
+            if nc2.button("➕ Add", key="add_col_btn"):
+                if new_col_name and new_col_name not in st.session_state.target_columns:
+                    st.session_state.target_columns.append(new_col_name)
+                    st.rerun()
 
         # --- STEP 2: UPLOAD & MAP ---
         st.header("📤 Step 2: Upload & Map")
@@ -127,7 +144,7 @@ if check_password():
                                 existing_data = conn_reports.read(worksheet="Sheet1", ttl=0)
                                 updated_df = pd.concat([existing_data, new_df], ignore_index=True, sort=False)
                                 conn_reports.update(worksheet="Sheet1", data=updated_df)
-                                st.cache_data.clear() # Force refresh
+                                st.cache_data.clear()
                                 st.success("Saved!")
                                 time.sleep(1)
                                 st.rerun()
@@ -136,10 +153,10 @@ if check_password():
 
         st.divider()
 
-        # --- STEP 3: MANAGE SEGMENTS ---
+        # --- RESTORED STEP 3: MANAGE SEGMENTS ---
         st.header("📋 Step 3: Manage Cloud Segments")
         try:
-            master_data = conn_reports.read(worksheet="Sheet1", ttl="10s")
+            master_data = conn_reports.read(worksheet="Sheet1", ttl="5s")
             if not master_data.empty and 'batch_id' in master_data.columns:
                 unique_imports = master_data[['batch_id', 'file_display_name', 'upload_time', 'uploaded_by']].drop_duplicates()
                 selected_batches = []
@@ -155,12 +172,29 @@ if check_password():
                         if c3.button("🗑️ Delete", key=f"del_{row['batch_id']}"):
                             remaining = master_data[master_data['batch_id'] != row['batch_id']]
                             conn_reports.update(worksheet="Sheet1", data=remaining)
-                            st.cache_data.clear() # Force refresh
+                            st.cache_data.clear()
                             st.rerun()
 
+                        # RESTORED: View & Download Expander
+                        with st.expander("👁️ View & Download this Individual Report"):
+                            individual_df = master_data[master_data['batch_id'] == row['batch_id']]
+                            # Ensure we only display columns that exist in the mapping
+                            display_cols = [c for c in st.session_state.target_columns if c in individual_df.columns]
+                            st.dataframe(individual_df[display_cols], use_container_width=True)
+                            
+                            csv_ind = individual_df[display_cols].to_csv(index=False).encode('utf-8')
+                            st.download_button(
+                                label="📥 Download as CSV",
+                                data=csv_ind,
+                                file_name=f"{row['file_display_name']}_export.csv",
+                                mime='text/csv',
+                                key=f"dl_btn_{row['batch_id']}"
+                            )
+
                 if selected_batches:
+                    st.markdown("---")
                     b1, b2 = st.columns(2)
-                    if b1.button("📂 Archive Selected"):
+                    if b1.button("📂 Archive Selected", key="main_archive_btn"):
                         with st.spinner("Archiving..."):
                             to_archive = master_data[master_data['batch_id'].isin(selected_batches)]
                             remaining = master_data[~master_data['batch_id'].isin(selected_batches)]
@@ -169,12 +203,16 @@ if check_password():
                                 updated_archive = pd.concat([archive_db, to_archive], ignore_index=True)
                                 conn_reports.update(worksheet="archive", data=updated_archive)
                                 conn_reports.update(worksheet="Sheet1", data=remaining)
-                                st.cache_data.clear() # IMPORTANT: Clear cache after move
+                                st.cache_data.clear()
                                 st.success("Moved to Archive!")
                                 time.sleep(1)
                                 st.rerun()
                             except Exception as e:
                                 st.error(f"Archive Error: {e}")
+                    
+                    if b2.button("📊 Generate Combined Report", key="main_combine_btn"):
+                        combined = master_data[master_data['batch_id'].isin(selected_batches)]
+                        st.dataframe(combined)
             else:
                 st.info("No active segments.")
         except Exception as e:
@@ -183,20 +221,17 @@ if check_password():
     with archive_tab:
         st.header("📁 Archived Data")
         try:
-            # We use ttl=0 here so that after clearing, it immediately sees the change
             archived_df = conn_reports.read(worksheet="archive", ttl=0)
             if archived_df is not None and not archived_df.empty:
                 st.dataframe(archived_df, use_container_width=True)
                 if st.button("🧹 Clear Archive"):
-                    # Keeps the headers but wipes the rows
                     empty_df = pd.DataFrame(columns=archived_df.columns)
                     conn_reports.update(worksheet="archive", data=empty_df)
-                    st.cache_data.clear() # Force the app to forget the old data
+                    st.cache_data.clear()
                     st.success("Archive Cleared!")
                     time.sleep(1)
                     st.rerun()
             else:
                 st.info("Archive is empty.")
         except Exception as e:
-            # This catch is now only for real errors (like a missing tab)
-            st.error(f"Archive Tab Error: Ensure 'archive' tab exists in Google Sheets. ({e})")
+            st.error(f"Archive Tab Error: Ensure 'archive' tab exists. ({e})")
