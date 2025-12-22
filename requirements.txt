@@ -4,3 +4,4 @@ openpyxl
 st-gsheets-connection
 gspread
 duckdb
+pytz
