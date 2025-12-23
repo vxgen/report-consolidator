@@ -55,7 +55,7 @@ if check_password():
     st.title("☁️ Cloud Inventory Consolidator")
     main_tab, preset_tab, archive_tab = st.tabs(["🚀 Active Dashboard", "🗺️ Mapping Presets", "📁 Historical Archive"])
 
-    # --- TAB 2: MAPPING PRESETS (With Add/Edit/Delete) ---
+    # --- TAB 2: MAPPING PRESETS (Add/Edit/Delete) ---
     with preset_tab:
         st.header("🗺️ Manage Mapping Presets")
         
@@ -82,27 +82,25 @@ if check_password():
 
         st.divider()
 
-        # 2. SEARCH & MANAGE (EDIT/DELETE)
+        # 2. SEARCH & MANAGE
         search = st.text_input("🔍 Search existing rules:", placeholder="Search Client or Rule...").lower()
         
         if not presets_db.empty:
+            # Create a copy to iterate so we don't interfere with deletion
             for idx, row in presets_db.iterrows():
-                if search in row['client_name'].lower() or search in row['rule_name'].lower():
+                if search in str(row['client_name']).lower() or search in str(row['rule_name']).lower():
                     with st.container(border=True):
                         c1, c2, c3 = st.columns([4, 1, 1])
                         c1.write(f"**{row['client_name']}** - {row['rule_name']}")
                         
-                        # DELETE button
                         if c3.button("🗑️ Delete", key=f"del_{row['preset_id']}"):
                             updated_presets = presets_db.drop(idx)
                             conn_cloud.update(worksheet="presets", data=updated_presets)
                             st.rerun()
                         
-                        # EDIT expander
                         with st.expander("✏️ Edit Mapping"):
                             with st.form(key=f"edit_form_{row['preset_id']}"):
                                 updated_row = {"preset_id": row['preset_id'], "client_name": row['client_name'], "rule_name": row['rule_name']}
-                                st.write("Update Source Column Headers:")
                                 for t_col in st.session_state.target_columns:
                                     updated_row[t_col] = st.text_input(f"Header for {t_col}:", value=row[t_col])
                                 
@@ -114,7 +112,6 @@ if check_password():
 
     # --- TAB 1: ACTIVE DASHBOARD ---
     with main_tab:
-        # Step 1: Format
         with st.expander("⚙️ Step 1: Configure Target Format"):
             cols_to_remove = []
             for i, col in enumerate(st.session_state.target_columns):
@@ -125,7 +122,6 @@ if check_password():
                 st.session_state.target_columns.remove(col)
                 st.rerun()
 
-        # Step 2: Upload & Map
         st.header("📤 Step 2: Upload & Map")
         uploaded_files = st.file_uploader("Upload Files", type=["csv", "xlsx"], accept_multiple_files=True)
         
@@ -148,8 +144,66 @@ if check_password():
                     mapping_dict = {}
                     m_cols = st.columns(3)
                     
-                    # Apply Preset Logic
                     active_rule = None
                     if sel_rule_full != "Manual / Smart Match":
                         c_part, r_part = sel_rule_full.split(" - ", 1)
-                        match = rules[(rules['client_name'] == c_part) & (rules['rule_
+                        match = rules[(rules['client_name'] == c_part) & (rules['rule_name'] == r_part)]
+                        if not match.empty: active_rule = match.iloc[0]
+
+                    for idx, t_col in enumerate(st.session_state.target_columns):
+                        default_idx = 0
+                        if active_rule is not None and t_col in active_rule:
+                            if active_rule[t_col] in source_cols:
+                                default_idx = source_cols.index(active_rule[t_col]) + 1
+                        
+                        if default_idx == 0:
+                            for s_col in source_cols:
+                                if t_col.lower() in s_col.lower() or s_col.lower() in t_col.lower():
+                                    default_idx = source_cols.index(s_col) + 1
+                                    break
+                        
+                        mapping_dict[t_col] = m_cols[idx % 3].selectbox(f"Map {t_col}", [None] + source_cols, index=default_idx, key=f"m_{file.name}_{t_col}")
+
+                    if st.button(f"Confirm & Save {file.name}", key=f"b_{file.name}"):
+                        valid_maps = {v: k for k, v in mapping_dict.items() if v is not None}
+                        if valid_maps:
+                            new_df = df_source[list(valid_maps.keys())].rename(columns=valid_maps)
+                            new_df['batch_id'] = f"ID_{int(time.time())}_{i}"
+                            new_df['upload_time'] = get_sydney_time()
+                            new_df['file_display_name'] = file.name
+                            new_df['uploaded_by'] = st.session_state['current_user']
+
+                            master = conn_cloud.read(worksheet="Sheet1", ttl="0s")
+                            updated = pd.concat([master, new_df], ignore_index=True)
+                            conn_cloud.update(worksheet="Sheet1", data=updated)
+                            st.success("Saved!")
+                            time.sleep(1)
+                            st.rerun()
+
+        st.divider()
+        st.header("📋 Step 3: Manage Cloud Segments")
+        try:
+            master_data = conn_cloud.read(worksheet="Sheet1", ttl="0s")
+            if not master_data.empty:
+                unique_imports = master_data[['batch_id', 'file_display_name', 'upload_time']].drop_duplicates()
+                selected_batches = []
+                for _, row in unique_imports.iterrows():
+                    with st.container(border=True):
+                        c1, c2, c3 = st.columns([0.5, 4, 2])
+                        if c1.checkbox("", key=f"sel_{row['batch_id']}"): selected_batches.append(row['batch_id'])
+                        c2.write(f"**{row['file_display_name']}**")
+                        if c3.button("🗑️", key=f"del_seg_{row['batch_id']}"):
+                            conn_cloud.update(worksheet="Sheet1", data=master_data[master_data['batch_id'] != row['batch_id']])
+                            st.rerun()
+
+                if selected_batches and st.button("📊 Consolidated Report"):
+                    st.dataframe(master_data[master_data['batch_id'].isin(selected_batches)], use_container_width=True)
+        except: pass
+
+    with archive_tab:
+        st.header("📁 Historical Archive")
+        try:
+            archived_df = conn_cloud.read(worksheet="archive", ttl="10s")
+            if not archived_df.empty:
+                st.dataframe(archived_df, use_container_width=True)
+        except: st.warning("Archive is empty.")
