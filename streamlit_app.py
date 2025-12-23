@@ -20,7 +20,7 @@ def get_sydney_time():
     return datetime.now(sydney_tz).strftime("%Y-%m-%d %I:%M %p")
 
 # --- 2. PAGE CONFIGURATION ---
-st.set_page_config(page_title="Cloud Inventory Manager", layout="wide")
+st.set_page_config(page_title="Cloud Reporting Manager", layout="wide")
 
 # --- 3. SECURE AUTHENTICATION SYSTEM ---
 def check_password():
@@ -30,7 +30,7 @@ def check_password():
     if st.session_state["password_correct"]:
         return True
 
-    st.title("🔐 Inventory System Access")
+    st.title("🔐 Reporting System Access")
     tab1, tab2 = st.tabs(["🔑 Login", "📝 Register"])
 
     with tab1:
@@ -66,7 +66,7 @@ if check_password():
         st.session_state["password_correct"] = False
         st.rerun()
 
-    st.title("☁️ Cloud Inventory Consolidator")
+    st.title("☁️ Cloud Reporting Consolidator")
     
     main_tab, archive_tab = st.tabs(["🚀 Active Dashboard", "📁 Historical Archive"])
 
@@ -217,3 +217,4 @@ if check_password():
                 st.info("Archive is empty.")
         except:
             st.error("Ensure 'archive' tab exists.")
+
