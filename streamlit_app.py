@@ -55,50 +55,72 @@ if check_password():
     st.title("☁️ Cloud Inventory Consolidator")
     main_tab, preset_tab, archive_tab = st.tabs(["🚀 Active Dashboard", "🗺️ Mapping Presets", "📁 Historical Archive"])
 
-    # --- TAB 2: MAPPING PRESETS ---
+    # --- TAB 2: MAPPING PRESETS (With Add/Edit/Delete) ---
     with preset_tab:
         st.header("🗺️ Manage Mapping Presets")
         
         try:
-            presets_db = conn_cloud.read(worksheet="presets", ttl="5s")
+            presets_db = conn_cloud.read(worksheet="presets", ttl="0s")
         except:
-            presets_db = pd.DataFrame(columns=["client_name", "rule_name"] + st.session_state.target_columns)
+            presets_db = pd.DataFrame(columns=["preset_id", "client_name", "rule_name"] + st.session_state.target_columns)
 
-        # NEW: Search Bar for Presets
-        search_query = st.text_input("🔍 Search Presets (Client or Rule Name):", placeholder="e.g. Umart").strip().lower()
-        
-        if not presets_db.empty:
-            filtered_presets = presets_db[
-                presets_db['client_name'].str.lower().str.contains(search_query) | 
-                presets_db['rule_name'].str.lower().str.contains(search_query)
-            ]
-            st.subheader("Filtered Rules")
-            st.dataframe(filtered_presets, use_container_width=True)
-        
-        with st.expander("➕ Create New Mapping Rule"):
-            with st.form("new_rule_form"):
+        # 1. ADD NEW PRESET
+        with st.expander("➕ Add New Mapping Rule"):
+            with st.form("add_preset_form"):
                 p_client = st.text_input("Client Name")
-                p_rule = st.text_input("Rule Name")
-                new_mapping = {"client_name": p_client, "rule_name": p_rule}
+                p_rule = st.text_input("Rule/Report Category")
+                new_mapping = {"preset_id": f"PR_{int(time.time())}", "client_name": p_client, "rule_name": p_rule}
                 for t_col in st.session_state.target_columns:
                     new_mapping[t_col] = st.text_input(f"CSV Header for '{t_col}':")
                 
-                if st.form_submit_button("Save Mapping Rule"):
+                if st.form_submit_button("Save Rule"):
                     if p_client and p_rule:
                         updated_presets = pd.concat([presets_db, pd.DataFrame([new_mapping])], ignore_index=True)
                         conn_cloud.update(worksheet="presets", data=updated_presets)
-                        st.success("Saved!")
+                        st.success("Rule Added!")
                         st.rerun()
+
+        st.divider()
+
+        # 2. SEARCH & MANAGE (EDIT/DELETE)
+        search = st.text_input("🔍 Search existing rules:", placeholder="Search Client or Rule...").lower()
+        
+        if not presets_db.empty:
+            for idx, row in presets_db.iterrows():
+                if search in row['client_name'].lower() or search in row['rule_name'].lower():
+                    with st.container(border=True):
+                        c1, c2, c3 = st.columns([4, 1, 1])
+                        c1.write(f"**{row['client_name']}** - {row['rule_name']}")
+                        
+                        # DELETE button
+                        if c3.button("🗑️ Delete", key=f"del_{row['preset_id']}"):
+                            updated_presets = presets_db.drop(idx)
+                            conn_cloud.update(worksheet="presets", data=updated_presets)
+                            st.rerun()
+                        
+                        # EDIT expander
+                        with st.expander("✏️ Edit Mapping"):
+                            with st.form(key=f"edit_form_{row['preset_id']}"):
+                                updated_row = {"preset_id": row['preset_id'], "client_name": row['client_name'], "rule_name": row['rule_name']}
+                                st.write("Update Source Column Headers:")
+                                for t_col in st.session_state.target_columns:
+                                    updated_row[t_col] = st.text_input(f"Header for {t_col}:", value=row[t_col])
+                                
+                                if st.form_submit_button("Update Rule"):
+                                    presets_db.iloc[idx] = updated_row
+                                    conn_cloud.update(worksheet="presets", data=presets_db)
+                                    st.success("Rule Updated!")
+                                    st.rerun()
 
     # --- TAB 1: ACTIVE DASHBOARD ---
     with main_tab:
         # Step 1: Format
-        with st.expander("⚙️ Step 1: Target Format"):
+        with st.expander("⚙️ Step 1: Configure Target Format"):
             cols_to_remove = []
             for i, col in enumerate(st.session_state.target_columns):
                 c1, c2 = st.columns([5, 1])
-                st.session_state.target_columns[i] = c1.text_input(f"Col {i+1}", value=col, key=f"e_{i}")
-                if c2.button("🗑️", key=f"d_{i}"): cols_to_remove.append(col)
+                st.session_state.target_columns[i] = c1.text_input(f"Col {i+1}", value=col, key=f"e_col_{i}")
+                if c2.button("🗑️", key=f"d_col_{i}"): cols_to_remove.append(col)
             for col in cols_to_remove: 
                 st.session_state.target_columns.remove(col)
                 st.rerun()
@@ -126,76 +148,8 @@ if check_password():
                     mapping_dict = {}
                     m_cols = st.columns(3)
                     
-                    # Logic for Preset or Smart Match
+                    # Apply Preset Logic
                     active_rule = None
                     if sel_rule_full != "Manual / Smart Match":
-                        c_name, r_name = sel_rule_full.split(" - ")
-                        active_rule = rules[(rules['client_name'] == c_name) & (rules['rule_name'] == r_name)].iloc[0]
-
-                    for idx, t_col in enumerate(st.session_state.target_columns):
-                        default_idx = 0
-                        
-                        # A: Priority - Preset Match
-                        if active_rule is not None and t_col in active_rule:
-                            target_header = active_rule[t_col]
-                            if target_header in source_cols:
-                                default_idx = source_cols.index(target_header) + 1
-                        
-                        # B: Secondary - Smart Match (Containment Logic)
-                        if default_idx == 0:
-                            for s_col in source_cols:
-                                if t_col.lower() in s_col.lower() or s_col.lower() in t_col.lower():
-                                    default_idx = source_cols.index(s_col) + 1
-                                    break
-                        
-                        mapping_dict[t_col] = m_cols[idx % 3].selectbox(
-                            f"Map {t_col}", [None] + source_cols, index=default_idx, key=f"m_{file.name}_{t_col}"
-                        )
-
-                    if st.button(f"Confirm & Save {file.name}", key=f"b_{file.name}"):
-                        valid_maps = {v: k for k, v in mapping_dict.items() if v is not None}
-                        if valid_maps:
-                            new_df = df_source[list(valid_maps.keys())].rename(columns=valid_maps)
-                            new_df['batch_id'] = f"ID_{datetime.now().strftime('%Y%m%d%H%M%S')}_{i}"
-                            new_df['upload_time'] = get_sydney_time()
-                            new_df['file_display_name'] = file.name
-                            new_df['uploaded_by'] = st.session_state['current_user']
-
-                            # Concatenate to Cloud
-                            try:
-                                master = conn_cloud.read(worksheet="Sheet1", ttl="0s")
-                                updated = pd.concat([master, new_df], ignore_index=True)
-                                conn_cloud.update(worksheet="Sheet1", data=updated)
-                                st.success("Saved!")
-                                time.sleep(1)
-                                st.rerun()
-                            except: st.error("Cloud Busy.")
-
-        st.divider()
-        st.header("📋 Step 3: Manage Cloud Segments")
-        # (Step 3 deletion and consolidation logic remains here)
-        try:
-            master_data = conn_cloud.read(worksheet="Sheet1", ttl="5s")
-            if not master_data.empty:
-                unique_imports = master_data[['batch_id', 'file_display_name', 'upload_time']].drop_duplicates()
-                selected_batches = []
-                for _, row in unique_imports.iterrows():
-                    with st.container(border=True):
-                        c1, c2, c3 = st.columns([0.5, 4, 2])
-                        if c1.checkbox("", key=f"s_{row['batch_id']}"): selected_batches.append(row['batch_id'])
-                        c2.write(f"**{row['file_display_name']}**")
-                        if c3.button("🗑️", key=f"d_{row['batch_id']}"):
-                            conn_cloud.update(worksheet="Sheet1", data=master_data[master_data['batch_id'] != row['batch_id']])
-                            st.rerun()
-
-                if selected_batches and st.button("📊 Consolidated Report"):
-                    st.dataframe(master_data[master_data['batch_id'].isin(selected_batches)], use_container_width=True)
-            else: st.info("No active segments.")
-        except: pass
-
-    with archive_tab:
-        st.header("Archive")
-        try:
-            archived = conn_cloud.read(worksheet="archive", ttl="10s")
-            if not archived.empty: st.dataframe(archived, use_container_width=True)
-        except: st.warning("Ready for archive data.")
+                        c_part, r_part = sel_rule_full.split(" - ", 1)
+                        match = rules[(rules['client_name'] == c_part) & (rules['rule_
