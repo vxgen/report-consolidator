@@ -65,11 +65,14 @@ if check_password():
     # --- TAB 2: MAPPING PRESETS ---
     with preset_tab:
         st.header("🗺️ Manage Mapping Presets")
+        
+        # Load Existing Presets from Google Sheet
         try:
             presets_db = conn_cloud.read(worksheet="presets", ttl="0s")
         except:
             presets_db = pd.DataFrame(columns=["preset_id", "client_name", "rule_name"] + st.session_state.target_columns)
 
+        # A. Add New Mapping Rule
         with st.expander("➕ Add New Mapping Rule"):
             sample_file = st.file_uploader("Upload sample to see headers:", type=["csv", "xlsx"], key="pre_up")
             sample_headers = []
@@ -78,20 +81,67 @@ if check_password():
                 sample_headers = [str(c) for c in df_s.columns]
 
             with st.form("add_preset_form"):
-                p_client = st.text_input("Client Name")
-                p_rule = st.text_input("Rule Category")
+                c1, c2 = st.columns(2)
+                p_client = c1.text_input("Client Name")
+                p_rule = c2.text_input("Rule Category")
                 new_mapping = {"preset_id": f"PR_{int(time.time())}", "client_name": p_client, "rule_name": p_rule}
+                
                 for t_col in st.session_state.target_columns:
                     if sample_headers:
-                        new_mapping[t_col] = st.selectbox(f"Header for {t_col}", [None] + sample_headers)
+                        new_mapping[t_col] = st.selectbox(f"Header for {t_col}", [None] + sample_headers, key=f"sel_{t_col}")
                     else:
-                        new_mapping[t_col] = st.text_input(f"Header for {t_col}")
+                        new_mapping[t_col] = st.text_input(f"Header for {t_col}", key=f"inp_{t_col}")
                 
                 if st.form_submit_button("Save Rule"):
-                    updated_presets = pd.concat([presets_db, pd.DataFrame([new_mapping])], ignore_index=True)
-                    conn_cloud.update(worksheet="presets", data=updated_presets)
-                    st.success("Rule Saved!")
-                    st.rerun()
+                    if p_client and p_rule:
+                        updated_presets = pd.concat([presets_db, pd.DataFrame([new_mapping])], ignore_index=True)
+                        conn_cloud.update(worksheet="presets", data=updated_presets)
+                        st.success("Rule Saved Successfully!")
+                        time.sleep(1)
+                        st.rerun()
+
+        st.divider()
+
+        # B. Search & List Existing Records (Restored)
+        st.subheader("🔍 Search & Manage Rules")
+        search_query = st.text_input("Filter by Client or Rule Name:", placeholder="Start typing...").lower()
+
+        if not presets_db.empty:
+            # Filtering Logic
+            filtered_df = presets_db[
+                presets_db['client_name'].astype(str).str.lower().str.contains(search_query) | 
+                presets_db['rule_name'].astype(str).str.lower().str.contains(search_query)
+            ]
+
+            if filtered_df.empty:
+                st.info("No matching rules found.")
+            else:
+                for idx, row in filtered_df.iterrows():
+                    with st.container(border=True):
+                        col_text, col_edit, col_del = st.columns([4, 1, 1])
+                        col_text.write(f"**{row['client_name']}** - {row['rule_name']}")
+                        
+                        # Delete functionality
+                        if col_del.button("🗑️ Delete", key=f"del_{row['preset_id']}"):
+                            updated_presets = presets_db.drop(idx)
+                            conn_cloud.update(worksheet="presets", data=updated_presets)
+                            st.success("Rule Deleted.")
+                            st.rerun()
+                        
+                        # Edit functionality
+                        with col_edit.expander("✏️ Edit"):
+                            with st.form(key=f"ed_form_{row['preset_id']}"):
+                                updated_row = {"preset_id": row['preset_id'], "client_name": row['client_name'], "rule_name": row['rule_name']}
+                                for t_col in st.session_state.target_columns:
+                                    val = row[t_col] if t_col in row else ""
+                                    updated_row[t_col] = st.text_input(f"{t_col}:", value=val)
+                                if st.form_submit_button("Update"):
+                                    presets_db.iloc[idx] = pd.Series(updated_row)
+                                    conn_cloud.update(worksheet="presets", data=presets_db)
+                                    st.success("Updated!")
+                                    st.rerun()
+        else:
+            st.info("No rules found in Google Sheets. Add one above.")
 
     # --- TAB 1: ACTIVE DASHBOARD ---
     with main_tab:
@@ -135,6 +185,7 @@ if check_password():
                         v_maps = {v: k for k, v in mapping_dict.items() if v}
                         new_df = df_source[list(v_maps.keys())].rename(columns=v_maps)
                         new_df['batch_id'], new_df['upload_time'], new_df['file_display_name'] = f"B_{int(time.time())}", get_sydney_time(), file.name
+                        new_df['uploaded_by'] = st.session_state['current_user']
                         master = conn_cloud.read(worksheet="Sheet1", ttl="0s")
                         conn_cloud.update(worksheet="Sheet1", data=pd.concat([master, new_df], ignore_index=True))
                         st.success("Uploaded!")
@@ -145,32 +196,34 @@ if check_password():
         try:
             master_data = conn_cloud.read(worksheet="Sheet1", ttl="0s")
             if not master_data.empty:
-                unique_batches = master_data[['batch_id', 'file_display_name', 'upload_time']].drop_duplicates()
+                unique_batches = master_data[['batch_id', 'file_display_name', 'upload_time', 'uploaded_by']].drop_duplicates()
                 selected_ids = []
                 for _, row in unique_batches.iterrows():
                     with st.container(border=True):
                         c1, c2, c3 = st.columns([0.5, 4, 1])
                         if c1.checkbox("", key=f"cb_{row['batch_id']}"): selected_ids.append(row['batch_id'])
-                        c2.write(f"**{row['file_display_name']}** ({row['upload_time']})")
+                        c2.write(f"**{row['file_display_name']}**")
+                        c2.caption(f"By: {row['uploaded_by']} | {row['upload_time']}")
                         if c3.button("🗑️", key=f"ds_{row['batch_id']}"):
                             conn_cloud.update(worksheet="Sheet1", data=master_data[master_data['batch_id'] != row['batch_id']])
                             st.rerun()
 
-                # RESTORED STEP 4: CONSOLIDATION
                 if selected_ids:
                     st.divider()
-                    st.subheader("📊 Step 4: Consolidated Report")
+                    st.subheader("📊 Consolidated Report")
                     combined = master_data[master_data['batch_id'].isin(selected_ids)]
                     st.dataframe(combined[st.session_state.target_columns], use_container_width=True)
                     
                     c_down, c_arch = st.columns(2)
                     c_down.download_button("📥 Download Combined CSV", combined.to_csv(index=False), "consolidated.csv")
-                    
-                    if c_arch.button("📁 Archive Selected Segments"):
-                        archive_db = conn_cloud.read(worksheet="archive", ttl="0s")
+                    if c_arch.button("📁 Archive Selected"):
+                        try:
+                            archive_db = conn_cloud.read(worksheet="archive", ttl="0s")
+                        except:
+                            archive_db = pd.DataFrame()
                         conn_cloud.update(worksheet="archive", data=pd.concat([archive_db, combined], ignore_index=True))
                         conn_cloud.update(worksheet="Sheet1", data=master_data[~master_data['batch_id'].isin(selected_ids)])
-                        st.success("Segments moved to Archive!")
+                        st.success("Moved to Archive!")
                         st.rerun()
             else: st.info("No segments in cloud.")
         except: pass
@@ -179,5 +232,8 @@ if check_password():
         st.header("📁 Historical Archive")
         try:
             arc = conn_cloud.read(worksheet="archive", ttl="0s")
-            st.dataframe(arc, use_container_width=True) if not arc.empty else st.write("Archive is empty.")
-        except: pass
+            if not arc.empty:
+                st.dataframe(arc, use_container_width=True)
+                st.download_button("📥 Download Full Archive", arc.to_csv(index=False), "archive_full.csv")
+            else: st.write("Archive is empty.")
+        except: st.write("Archive worksheet not found.")
